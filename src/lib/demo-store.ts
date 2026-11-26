@@ -74,6 +74,8 @@ export interface Expediente {
   reporteTecnicoNumero?: string;
   reporteTecnicoFecha?: string;
   reporteTecnicoPdf?: string;
+  reporteTecnicoPdfUrl?: string;
+  reporteTecnicoDriveUrl?: string;
   horometroRegistrado?: number;
   // Actas y HES
   actaNumero?: string;

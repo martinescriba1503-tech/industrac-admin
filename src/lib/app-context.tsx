@@ -32,9 +32,14 @@ interface AppContextType {
     fechaServicio: string;
     horometro: number;
     pdfNombre: string;
+    pdfUrl?: string;
+    driveUrl?: string;
     tecnico: string;
     actividades: string;
-  }) => { exito: boolean; alertaHorometro?: string };
+    clienteNombre?: string;
+    equipoModelo?: string;
+    serie?: string;
+  }) => { exito: boolean; alertaHorometro?: string; expedienteId?: string };
   eliminarReporteTecnico: (expedienteId: string) => void;
   registrarPago: (
     expedienteId: string,
@@ -256,17 +261,65 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     fechaServicio: string;
     horometro: number;
     pdfNombre: string;
+    pdfUrl?: string;
+    driveUrl?: string;
     tecnico: string;
     actividades: string;
+    clienteNombre?: string;
+    equipoModelo?: string;
+    serie?: string;
   }) => {
-    const targetExp = expedientes.find(e => e.id === expedienteId);
-    if (!targetExp) return { exito: false };
+    let targetExp = expedientes.find((e) => e.id === expedienteId);
+    let nuevosExps = [...expedientes];
+
+    // Si el expediente no existe o se seleccionó uno nuevo, crearlo automáticamente
+    if (!targetExp) {
+      const cliNombre = reporte.clienteNombre || "Cliente INDUSTRAC";
+      const mod = reporte.equipoModelo || "Compresor";
+      const cod = `0171-2026 – ${cliNombre} – ${mod}`;
+      const nuevoExp: Expediente = {
+        id: `exp-${Date.now()}`,
+        codigo: cod,
+        cotizacionNumero: `COT-0171-2026`,
+        clienteId: `cli-${Date.now()}`,
+        clienteNombre: cliNombre,
+        equipoModelo: mod,
+        serie: reporte.serie || "S/N",
+        descripcion: reporte.actividades || "Servicio técnico preventivo de compresor",
+        total: 0,
+        moneda: "USD",
+        fechaCreacion: reporte.fechaServicio || new Date().toISOString().split("T")[0],
+        estadoGeneral: "Por Facturar",
+        aprobacionEstado: "Aprobada",
+        ordenCompraSituacion: "pendiente",
+        servicioEstado: "Ejecutado",
+        servicioTecnico: reporte.tecnico,
+        reporteTecnicoNumero: reporte.numeroReporte,
+        reporteTecnicoFecha: reporte.fechaServicio,
+        reporteTecnicoPdf: reporte.pdfNombre,
+        reporteTecnicoPdfUrl: reporte.pdfUrl,
+        reporteTecnicoDriveUrl: reporte.driveUrl,
+        horometroRegistrado: reporte.horometro,
+        pagosTotal: 0,
+        saldoPendiente: 0,
+        cierreFinanciero: false,
+      };
+      nuevosExps = [nuevoExp, ...expedientes];
+      targetExp = nuevoExp;
+    }
 
     let alertaHorometro: string | undefined;
 
-    // Actualizar equipo si coincide serie
-    const nuevosEquipos = equipos.map((eq) => {
-      if (eq.serie === targetExp.serie || eq.modelo === targetExp.equipoModelo) {
+    // Actualizar equipo si coincide serie o modelo
+    let equipoEncontrado = false;
+    let nuevosEquipos = equipos.map((eq) => {
+      const coincide =
+        (reporte.serie && eq.serie.toLowerCase() === reporte.serie.toLowerCase()) ||
+        (targetExp && eq.serie === targetExp.serie) ||
+        (targetExp && eq.modelo.toLowerCase() === targetExp.equipoModelo.toLowerCase());
+
+      if (coincide) {
+        equipoEncontrado = true;
         if (reporte.horometro < eq.horometroActual) {
           alertaHorometro = `¡Atención! El horómetro ingresado (${reporte.horometro} h) es inferior al registro anterior (${eq.horometroActual} h). Verifique el documento.`;
         }
@@ -274,20 +327,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ...eq,
           horometroActual: reporte.horometro,
           ultimoMantenimientoFecha: reporte.fechaServicio,
-          ultimoMantenimientoTipo: "Servicio Técnico Confirmado",
-          proximoMantenimientoEstimado: "Próximo en 3 meses o según horas acumuladas",
+          ultimoMantenimientoTipo: reporte.actividades || "Servicio Técnico Confirmado",
+          proximoMantenimientoEstimado: "Próximo según horas acumuladas",
         };
       }
       return eq;
     });
 
-    const nuevosExps = expedientes.map((exp) => {
-      if (exp.id === expedienteId) {
+    // Si el equipo no existía en el inventario, agregarlo automáticamente con su horómetro real
+    if (!equipoEncontrado) {
+      const nuevoEq: Equipo = {
+        id: `eq-${Date.now()}`,
+        clienteId: targetExp.clienteId,
+        equipo: targetExp.equipoModelo,
+        modelo: targetExp.equipoModelo,
+        serie: reporte.serie || targetExp.serie || `SN-${Date.now().toString().slice(-4)}`,
+        horometroActual: reporte.horometro,
+        ultimoMantenimientoTipo: reporte.actividades || "Servicio Técnico Confirmado",
+        ultimoMantenimientoFecha: reporte.fechaServicio,
+        proximoMantenimientoEstimado: "Próximo según horas acumuladas",
+      };
+      nuevosEquipos = [...nuevosEquipos, nuevoEq];
+    }
+
+    // Actualizar expediente existente si no fue el recién creado
+    nuevosExps = nuevosExps.map((exp) => {
+      if (exp.id === targetExp!.id) {
         return {
           ...exp,
           reporteTecnicoNumero: reporte.numeroReporte,
           reporteTecnicoFecha: reporte.fechaServicio,
           reporteTecnicoPdf: reporte.pdfNombre,
+          reporteTecnicoPdfUrl: reporte.pdfUrl || exp.reporteTecnicoPdfUrl,
+          reporteTecnicoDriveUrl: reporte.driveUrl || exp.reporteTecnicoDriveUrl,
           horometroRegistrado: reporte.horometro,
           servicioEstado: "Ejecutado" as const,
           servicioTecnico: reporte.tecnico,
@@ -312,8 +384,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setHistorial(nuevoHist);
     persistir(cotizaciones, nuevosExps, nuevosEquipos, nuevoHist);
 
-    mostrarNotificacion(`Reporte ${reporte.numeroReporte} adjuntado y horómetro actualizado.`);
-    return { exito: true, alertaHorometro };
+    mostrarNotificacion(`Reporte ${reporte.numeroReporte} adjuntado y horómetro actualizado a ${reporte.horometro} h.`);
+    return { exito: true, alertaHorometro, expedienteId: targetExp.id };
   };
 
   const eliminarReporteTecnico = (expedienteId: string) => {

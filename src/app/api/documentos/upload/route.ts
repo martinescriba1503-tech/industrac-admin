@@ -27,13 +27,18 @@ export async function POST(req: NextRequest) {
 
     let urlPublica = "";
     let driveUrl = "";
+    let driveFolderUrl = "";
     let driveError: string | null = null;
+
+    // Sanitizar nombres para carpetas de almacenamiento
+    const cleanExpediente = expedienteCodigo.replace(/[/\\?%*:|"<>]/g, "_").trim();
+    const cleanNombre = nombreArchivo.replace(/[/\\?%*:|"<>]/g, "_").trim();
 
     // 1. Almacenamiento primario en Supabase Storage (100% garantizado en la nube)
     const admin = getSupabaseAdmin();
     if (admin) {
       const bucketName = "documentos-expedientes";
-      const storagePath = `${subcarpeta}/${Date.now()}_${nombreArchivo}`;
+      const storagePath = `${cleanExpediente}/${subcarpeta}/${Date.now()}_${cleanNombre}`;
 
       const { data: uploadRes, error: uploadErr } = await admin.storage
         .from(bucketName)
@@ -50,7 +55,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2. Almacenamiento en Google Drive (si está habilitado con Unidad Compartida / permisos)
+    // 2. Almacenamiento y estructura de carpetas en Google Drive
     try {
       const driveRes = await subirDocumentoDrive({
         nombreArchivo,
@@ -60,6 +65,7 @@ export async function POST(req: NextRequest) {
         expedienteCodigo,
       });
       driveUrl = driveRes.webViewLink;
+      driveFolderUrl = driveRes.folderLink || "";
     } catch (driveErr: any) {
       driveError = driveErr?.message || String(driveErr);
       console.warn("Aviso Google Drive:", driveError);
@@ -70,8 +76,9 @@ export async function POST(req: NextRequest) {
       nombre: nombreArchivo,
       tamano: file.size,
       url: urlPublica || driveUrl,
+      supabaseUrl: urlPublica || null,
       driveUrl: driveUrl || null,
-      driveError: driveError || null,
+      driveFolderUrl: driveFolderUrl || null,
       subcarpeta,
       expedienteCodigo,
     });

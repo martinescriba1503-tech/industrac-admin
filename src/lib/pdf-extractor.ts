@@ -513,3 +513,189 @@ export function analizarTextoCotizacion(
     advertencias,
   };
 }
+
+export interface DatosReporteTecnicoExtraidos {
+  numeroReporte: string;
+  cliente: string;
+  fechaServicio: string;
+  direccion: string;
+  tecnico: string;
+  tipoServicio: string;
+  tipoMantenimiento: string;
+  modelo: string;
+  serie: string;
+  controlador: string;
+  horometro: number | null;
+  presion: string;
+  caudal: string;
+  tipoAceite: string;
+  nivelAceite: string;
+  fabricante: string;
+  actividades: string;
+  advertencias: string[];
+}
+
+/**
+ * Analizador semántico para Reportes Técnicos de Compresores de INDUSTRAC
+ */
+export function analizarTextoReporteTecnico(
+  texto: string,
+  nombreArchivo: string = ""
+): DatosReporteTecnicoExtraidos {
+  const advertencias: string[] = [];
+
+  // Lista de etiquetas oficiales de INDUSTRAC en Reportes Técnicos
+  const etiquetas = [
+    { key: "cliente", patrones: [/Cliente\s*(?:\/\s*Compa[ñn][ií]a)?/i, /Compa[ñn][ií]a/i, /Empresa/i] },
+    { key: "fechaServicio", patrones: [/Fecha\s*(?:del\s*Servicio)?/i, /Fecha/i] },
+    { key: "direccion", patrones: [/Direcci[oó]n\s*(?:del\s*Servicio)?/i, /Direcci[oó]n/i] },
+    { key: "tecnico", patrones: [/T[eé]cnico\s*(?:Responsable)?/i, /Ejecutado\s*por/i] },
+    { key: "tipoServicio", patrones: [/Tipo\s*de\s*Servicio/i] },
+    { key: "tipoMantenimiento", patrones: [/Tipo\s*de\s*Mantenimiento/i] },
+    { key: "modelo", patrones: [/Modelo\s*(?:del\s*Compresor)?/i, /Modelo/i, /Equipo/i] },
+    { key: "serie", patrones: [/API\s*(?:\/|\s)\s*ID\s*M[aá]quina/i, /ID\s*M[aá]quina/i, /N[°ºo]?\s*de\s*Serie/i, /Serie/i] },
+    { key: "controlador", patrones: [/Controlador\s*(?:\/\s*M[oó]dulo)?/i, /Controlador/i, /M[oó]dulo/i] },
+    { key: "horometro", patrones: [/Hor[oó]metro\s*Actual/i, /Hor[oó]metro/i] },
+    { key: "presion", patrones: [/Presi[oó]n\s*(?:Nominal)?(?:\s*\/\s*Setpoint)?/i] },
+    { key: "caudal", patrones: [/Caudal\s*(?:del\s*Equipo)?/i] },
+    { key: "tipoAceite", patrones: [/Tipo\s*de\s*Aceite/i] },
+    { key: "nivelAceite", patrones: [/Nivel\s*de\s*Aceite/i] },
+    { key: "fabricante", patrones: [/Fabricante(?:\s*de\s*Origen)?/i, /Marca/i] },
+  ];
+
+  // Identificar posiciones de etiquetas en el texto
+  const etiquetasEncontradas: Array<{
+    key: string;
+    index: number;
+    valorStart: number;
+  }> = [];
+
+  for (const et of etiquetas) {
+    for (const pat of et.patrones) {
+      const regex = new RegExp(`\\b(${pat.source})\\s*[:\\t]`, "i");
+      const match = texto.match(regex);
+      if (match && match.index !== undefined) {
+        etiquetasEncontradas.push({
+          key: et.key,
+          index: match.index,
+          valorStart: match.index + match[0].length,
+        });
+        break;
+      }
+    }
+  }
+
+  etiquetasEncontradas.sort((a, b) => a.index - b.index);
+
+  const valores: Record<string, string> = {};
+  for (let i = 0; i < etiquetasEncontradas.length; i++) {
+    const actual = etiquetasEncontradas[i];
+    const siguiente = etiquetasEncontradas[i + 1];
+    const fin = siguiente ? siguiente.index : texto.length;
+    let val = texto.substring(actual.valorStart, fin).trim();
+    val = val.replace(/\s+/g, " ");
+    valores[actual.key] = val;
+  }
+
+  const cliente = valores.cliente || "";
+  let fechaServicio = "";
+  if (valores.fechaServicio) {
+    const m = valores.fechaServicio.match(/([0-9]{4}[-/][0-9]{2}[-/][0-9]{2}|[0-9]{2}[-/][0-9]{2}[-/][0-9]{4})/);
+    if (m) {
+      const f = m[1].replace(/\//g, "-");
+      const p = f.split("-");
+      if (p[0].length === 2 && p[2].length === 4) {
+        fechaServicio = `${p[2]}-${p[1]}-${p[0]}`;
+      } else {
+        fechaServicio = f;
+      }
+    }
+  }
+  if (!fechaServicio) {
+    const mGenFecha = texto.match(/\b([0-9]{4}[-/][0-9]{2}[-/][0-9]{2})\b/);
+    if (mGenFecha) fechaServicio = mGenFecha[1];
+  }
+
+  const direccion = valores.direccion || "";
+  const tecnico = valores.tecnico || "";
+  const tipoServicio = valores.tipoServicio || "";
+  const tipoMantenimiento = valores.tipoMantenimiento || "";
+  const modelo = valores.modelo || "";
+  const serie = valores.serie || "";
+  const controlador = valores.controlador || "";
+  const presion = valores.presion || "";
+  const caudal = valores.caudal || "";
+  const tipoAceite = valores.tipoAceite || "";
+  const nivelAceite = valores.nivelAceite || "";
+  const fabricante = valores.fabricante || "";
+
+  // Horómetro
+  let horometro: number | null = null;
+  if (valores.horometro) {
+    const mH = valores.horometro.match(/([0-9]+(?:\.[0-9]+)?)/);
+    if (mH) horometro = parseFloat(mH[1]);
+  }
+  if (horometro === null) {
+    const mGenH = texto.match(/(?:Hor[oó]metro\s*Actual|Hor[oó]metro)\s*[:\t]*\s*([0-9]+(?:\.[0-9]+)?)/i);
+    if (mGenH) {
+      horometro = parseFloat(mGenH[1]);
+    } else {
+      const matchHrs = texto.match(/\b([0-9]{3,7})\s*hrs?\b/i);
+      if (matchHrs) horometro = parseFloat(matchHrs[1]);
+    }
+  }
+
+  // Número de Reporte
+  let numeroReporte = "";
+  const matchNumDoc = texto.match(/\bN[°ºo]\s*[:.\-]?\s*([0-9]{3,7}|RT[-_ ]?[0-9]+)/i);
+  if (matchNumDoc && matchNumDoc[1] && !/FINALIZADO/i.test(matchNumDoc[1])) {
+    numeroReporte = matchNumDoc[1].trim();
+    if (!numeroReporte.toUpperCase().startsWith("RT-")) {
+      numeroReporte = `RT-2026-${numeroReporte}`;
+    }
+  } else {
+    const matchName = nombreArchivo.match(/\b(?:RT)[-_ ]?([A-Za-z0-9\-]+)/i) || nombreArchivo.match(/(?:REPORTE)[-_ ]+(\d+)/i);
+    if (matchName) {
+      numeroReporte = `RT-${matchName[1]}`;
+    } else {
+      const matchDigits = nombreArchivo.match(/(\d{3,5})/);
+      if (matchDigits) {
+        numeroReporte = `RT-2026-${matchDigits[1]}`;
+      } else if (serie) {
+        numeroReporte = `RT-2026-${serie}`;
+      } else {
+        numeroReporte = `RT-2026-${Date.now().toString().slice(-4)}`;
+      }
+    }
+  }
+
+  const actividades = [tipoMantenimiento, tipoServicio].filter(Boolean).join(" — ") || "Servicio técnico preventivo ejecutado";
+
+  if (!horometro) {
+    advertencias.push("No se pudo detectar automáticamente la lectura del horómetro. Por favor ingrésela manualmente.");
+  }
+  if (!cliente) {
+    advertencias.push("No se detectó el nombre del cliente en el documento.");
+  }
+
+  return {
+    numeroReporte,
+    cliente,
+    fechaServicio: fechaServicio || new Date().toISOString().split("T")[0],
+    direccion,
+    tecnico,
+    tipoServicio,
+    tipoMantenimiento,
+    modelo,
+    serie,
+    controlador,
+    horometro,
+    presion,
+    caudal,
+    tipoAceite,
+    nivelAceite,
+    fabricante,
+    actividades,
+    advertencias,
+  };
+}
