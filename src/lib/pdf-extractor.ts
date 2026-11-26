@@ -193,6 +193,13 @@ export async function extraerTextoDePdf(buffer: Buffer | Uint8Array | ArrayBuffe
   let errorMsg: string | undefined = undefined;
 
   try {
+    // Polyfill de DOMMatrix para entornos Node.js / Vercel Serverless
+    if (typeof (globalThis as any).DOMMatrix === "undefined") {
+      (globalThis as any).DOMMatrix = class DOMMatrix {
+        constructor() {}
+      };
+    }
+
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
     let uint8: Uint8Array;
     if (buffer instanceof ArrayBuffer) {
