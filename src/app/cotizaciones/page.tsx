@@ -120,7 +120,8 @@ export default function CotizacionesPage() {
       // 1. Extracción directa y ultrarrápida en el cliente (0 latencia, sin restricciones de tamaño de Vercel)
       try {
         const arrayBuffer = await archivo.arrayBuffer();
-        const textoCliente = await extraerTextoDePdf(arrayBuffer);
+        const resCliente = await extraerTextoDePdf(arrayBuffer);
+        const textoCliente = resCliente?.texto || "";
         if (textoCliente && textoCliente.trim().length > 10) {
           d = analizarTextoCotizacion(textoCliente, archivo.name, descUsada);
         }

@@ -188,8 +188,9 @@ function parsearImporte(str: string): number | null {
  * Extrae texto de un buffer PDF usando pdfjs-dist puro JavaScript (legacy build).
  * Funciona garantizadamente en Node.js, Vercel Serverless (Linux) y navegadores.
  */
-export async function extraerTextoDePdf(buffer: Buffer | Uint8Array | ArrayBuffer): Promise<string> {
+export async function extraerTextoDePdf(buffer: Buffer | Uint8Array | ArrayBuffer): Promise<{ texto: string; error?: string }> {
   let texto = "";
+  let errorMsg: string | undefined = undefined;
 
   try {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -224,11 +225,12 @@ export async function extraerTextoDePdf(buffer: Buffer | Uint8Array | ArrayBuffe
     }
 
     texto = paginasTexto.join("\n");
-  } catch (pdfErr) {
+  } catch (pdfErr: any) {
+    errorMsg = pdfErr?.message || String(pdfErr);
     console.warn("pdfjs no pudo extraer texto directo:", pdfErr);
   }
 
-  return texto;
+  return { texto, error: errorMsg };
 }
 
 /**

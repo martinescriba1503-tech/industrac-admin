@@ -49,7 +49,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Extracción de texto
-    const texto = await extraerTextoDePdf(buffer);
+    const resExtraccion = await extraerTextoDePdf(buffer);
+    const texto = resExtraccion.texto;
 
     const descripcionDocumento = (formData.get("descripcionDocumento") as string | null) || undefined;
 
@@ -61,6 +62,7 @@ export async function POST(req: NextRequest) {
       archivoNombre: file.name,
       archivoTamano: file.size,
       textoLongitud: texto.length,
+      errorExtraccion: resExtraccion.error || null,
       datos,
     });
   } catch (error) {
