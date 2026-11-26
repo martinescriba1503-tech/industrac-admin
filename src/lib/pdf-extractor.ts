@@ -194,12 +194,14 @@ export async function extraerTextoDePdf(buffer: Buffer | Uint8Array | ArrayBuffe
   try {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
     let uint8: Uint8Array;
-    if (buffer instanceof Uint8Array) {
-      uint8 = buffer;
-    } else if (buffer instanceof ArrayBuffer) {
+    if (buffer instanceof ArrayBuffer) {
       uint8 = new Uint8Array(buffer);
+    } else if (typeof Buffer !== "undefined" && Buffer.isBuffer(buffer)) {
+      uint8 = new Uint8Array(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
+    } else if (buffer instanceof Uint8Array) {
+      uint8 = new Uint8Array(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
     } else {
-      uint8 = new Uint8Array(buffer);
+      uint8 = new Uint8Array(buffer as any);
     }
 
     const loadingTask = pdfjs.getDocument({
