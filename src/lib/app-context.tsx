@@ -24,6 +24,7 @@ interface AppContextType {
   mostrarNotificacion: (msg: string) => void;
   agregarCliente: (nuevo: Omit<Cliente, "id">) => Cliente;
   agregarCotizacion: (cot: Omit<Cotizacion, "id" | "expedienteId">) => { cotizacionId: string; expedienteId: string };
+  actualizarCotizacion: (id: string, updates: Partial<Cotizacion>) => void;
   eliminarCotizacion: (id: string, eliminarExpediente?: boolean) => void;
   actualizarExpediente: (id: string, updates: Partial<Expediente>) => void;
   adjuntarReporteTecnico: (expedienteId: string, reporte: {
@@ -181,6 +182,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     mostrarNotificacion(`Cotización ${nueva.numero} registrada y expediente creado.`);
     return { cotizacionId: cotId, expedienteId: expId };
+  };
+
+  const actualizarCotizacion = (id: string, updates: Partial<Cotizacion>) => {
+    setCotizaciones((prev) => {
+      const nuevas = prev.map((c) => (c.id === id || c.numero === id ? { ...c, ...updates } : c));
+      persistir(nuevas, expedientes, equipos, historial);
+      return nuevas;
+    });
   };
 
   const eliminarCotizacion = (cotizacionId: string, eliminarExpediente: boolean = true) => {
@@ -466,6 +475,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         mostrarNotificacion,
         agregarCliente,
         agregarCotizacion,
+        actualizarCotizacion,
         eliminarCotizacion,
         actualizarExpediente,
         adjuntarReporteTecnico,

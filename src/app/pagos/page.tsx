@@ -83,6 +83,30 @@ export default function PagosPage() {
       : undefined;
 
     registrarPago(expId, Number(monto), comprobante, docInfo);
+
+    if (archivo) {
+      const expTarget = expedientes.find((x) => x.id === expId);
+      const upData = new FormData();
+      upData.append("file", archivo);
+      upData.append("subcarpeta", "07_PAGOS");
+      upData.append("expedienteCodigo", expTarget?.codigo || "EXP-PAGO");
+      upData.append("nombreArchivo", archivo.name);
+
+      fetch("/api/documentos/upload", {
+        method: "POST",
+        body: upData,
+      })
+        .then(async (res) => {
+          if (res.ok) {
+            const upRes = await res.json();
+            if (upRes.url) {
+              actualizarExpediente(expId, { comprobantePagoUrl: upRes.url });
+            }
+          }
+        })
+        .catch((e) => console.warn("Error subiendo voucher:", e));
+    }
+
     limpiarFormulario();
   };
 
@@ -97,6 +121,27 @@ export default function PagosPage() {
       comprobantePagoUrl: archivoPreviewUrl || undefined,
       comprobantePagoFecha: fechaHoy,
     });
+
+    const targetId = modalSubirExp.id;
+    const upData = new FormData();
+    upData.append("file", archivo);
+    upData.append("subcarpeta", "07_PAGOS");
+    upData.append("expedienteCodigo", modalSubirExp.codigo);
+    upData.append("nombreArchivo", archivo.name);
+
+    fetch("/api/documentos/upload", {
+      method: "POST",
+      body: upData,
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          const upRes = await res.json();
+          if (upRes.url) {
+            actualizarExpediente(targetId, { comprobantePagoUrl: upRes.url });
+          }
+        }
+      })
+      .catch((e) => console.warn("Error subiendo voucher rápido:", e));
 
     mostrarNotificacion(`Voucher ${archivo.name} vinculado al expediente.`);
     limpiarFormulario();

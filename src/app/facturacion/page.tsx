@@ -81,6 +81,26 @@ export default function FacturacionPage() {
       updates.facturaDocTipo = archivoTipo;
       updates.facturaDocUrl = archivoPreviewUrl || undefined;
       updates.facturaDocFecha = fecha;
+
+      const upData = new FormData();
+      upData.append("file", archivo);
+      upData.append("subcarpeta", "06_FACTURACION");
+      upData.append("expedienteCodigo", target.codigo);
+      upData.append("nombreArchivo", archivo.name);
+
+      fetch("/api/documentos/upload", {
+        method: "POST",
+        body: upData,
+      })
+        .then(async (res) => {
+          if (res.ok) {
+            const upRes = await res.json();
+            if (upRes.url) {
+              actualizarExpediente(expId, { facturaDocUrl: upRes.url });
+            }
+          }
+        })
+        .catch((e) => console.warn("Error subiendo factura:", e));
     }
 
     actualizarExpediente(expId, updates);
@@ -103,6 +123,27 @@ export default function FacturacionPage() {
       facturaMonto: modalSubirExp.total,
       estadoGeneral: "Facturado",
     });
+
+    const targetId = modalSubirExp.id;
+    const upData = new FormData();
+    upData.append("file", archivo);
+    upData.append("subcarpeta", "06_FACTURACION");
+    upData.append("expedienteCodigo", modalSubirExp.codigo);
+    upData.append("nombreArchivo", archivo.name);
+
+    fetch("/api/documentos/upload", {
+      method: "POST",
+      body: upData,
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          const upRes = await res.json();
+          if (upRes.url) {
+            actualizarExpediente(targetId, { facturaDocUrl: upRes.url });
+          }
+        }
+      })
+      .catch((e) => console.warn("Error subiendo factura rápida:", e));
 
     mostrarNotificacion(`Documento de factura ${archivo.name} adjuntado.`);
     limpiarFormulario();

@@ -13,7 +13,15 @@ import {
 type ModalPaso = "adjuntar" | "procesando" | "verificar";
 
 export default function CotizacionesPage() {
-  const { cotizaciones, clientes, agregarCotizacion, agregarCliente, eliminarCotizacion, mostrarNotificacion } = useApp();
+  const {
+    cotizaciones,
+    clientes,
+    agregarCotizacion,
+    actualizarCotizacion,
+    agregarCliente,
+    eliminarCotizacion,
+    mostrarNotificacion,
+  } = useApp();
 
   // Filtros de listado
   const [busqueda, setBusqueda] = useState("");
@@ -346,7 +354,7 @@ export default function CotizacionesPage() {
       nombrePdfFinal
     )}`;
 
-    const { expedienteId } = agregarCotizacion({
+    const { expedienteId, cotizacionId } = agregarCotizacion({
       numero: numeroNormalizado,
       clienteId: finalClienteId,
       clienteNombre: finalClienteNombre,
@@ -364,6 +372,30 @@ export default function CotizacionesPage() {
       condicionPago: formCondicionPago.trim(),
       validezOferta: formValidezOferta.trim(),
     });
+
+    if (archivoPdf) {
+      const upData = new FormData();
+      upData.append("file", archivoPdf);
+      upData.append("subcarpeta", "01_COTIZACION");
+      upData.append("expedienteCodigo", `${numeroNormalizado} - ${finalClienteNombre}`);
+      upData.append("nombreArchivo", nombrePdfFinal);
+
+      fetch("/api/documentos/upload", {
+        method: "POST",
+        body: upData,
+      })
+        .then(async (res) => {
+          if (res.ok) {
+            const upRes = await res.json();
+            if (upRes.url) {
+              actualizarCotizacion(cotizacionId, {
+                pdfUrl: upRes.url,
+              });
+            }
+          }
+        })
+        .catch((e) => console.warn("Error en subida de documento:", e));
+    }
 
     setExpedienteCreadoId(expedienteId);
     mostrarNotificacion(

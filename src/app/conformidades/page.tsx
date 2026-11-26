@@ -88,6 +88,27 @@ export default function ConformidadesPage() {
       updates.actaDocTipo = archivoTipo;
       updates.actaDocUrl = archivoPreviewUrl || undefined;
       updates.actaDocFecha = fechaHoy;
+
+      // Subir archivo a la nube en segundo plano
+      const upData = new FormData();
+      upData.append("file", archivo);
+      upData.append("subcarpeta", "05_ACTA_HES");
+      upData.append("expedienteCodigo", expTarget.codigo);
+      upData.append("nombreArchivo", archivo.name);
+
+      fetch("/api/documentos/upload", {
+        method: "POST",
+        body: upData,
+      })
+        .then(async (res) => {
+          if (res.ok) {
+            const upRes = await res.json();
+            if (upRes.url) {
+              actualizarExpediente(expId, { actaDocUrl: upRes.url });
+            }
+          }
+        })
+        .catch((e) => console.warn("Error subiendo acta:", e));
     }
 
     actualizarExpediente(expId, updates);
@@ -108,6 +129,27 @@ export default function ConformidadesPage() {
       actaNumero: acta.trim() || modalSubirExp.actaNumero || `ACTA-${Date.now().toString().slice(-4)}`,
       hesNumero: hes.trim() || modalSubirExp.hesNumero,
     });
+
+    const expIdTarget = modalSubirExp.id;
+    const upData = new FormData();
+    upData.append("file", archivo);
+    upData.append("subcarpeta", "05_ACTA_HES");
+    upData.append("expedienteCodigo", modalSubirExp.codigo);
+    upData.append("nombreArchivo", archivo.name);
+
+    fetch("/api/documentos/upload", {
+      method: "POST",
+      body: upData,
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          const upRes = await res.json();
+          if (upRes.url) {
+            actualizarExpediente(expIdTarget, { actaDocUrl: upRes.url });
+          }
+        }
+      })
+      .catch((e) => console.warn("Error subiendo acta rápida:", e));
 
     mostrarNotificacion(`Documento ${archivo.name} adjuntado a ${modalSubirExp.codigo}`);
     limpiarFormulario();

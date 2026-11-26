@@ -1,9 +1,18 @@
 import { google } from "googleapis";
 import { Readable } from "stream";
 
-const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "";
+const serviceAccountEmail =
+  process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
+  process.env.GOOGLE_CLIENT_EMAIL ||
+  "";
+
+const rawPrivateKey =
+  process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ||
+  process.env.GOOGLE_PRIVATE_KEY ||
+  "";
+
 // Corregir posibles saltos de línea escapados en la llave privada (\n -> newline)
-const serviceAccountKey = (process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || "").replace(/\\n/g, "\n");
+const serviceAccountKey = rawPrivateKey.replace(/\\n/g, "\n");
 const rootFolderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || "";
 
 /**
@@ -63,7 +72,7 @@ export async function subirDocumentoDrive({
     const response = await drive.files.create({
       requestBody: {
         name: nombreArchivo,
-        parents: [rootFolderId], // O el ID de la subcarpeta del expediente
+        parents: [rootFolderId],
         description: `Expediente: ${expedienteCodigo} | Sección: ${subcarpeta}`,
       },
       media: {
@@ -71,6 +80,7 @@ export async function subirDocumentoDrive({
         body: stream,
       },
       fields: "id, name, webViewLink",
+      supportsAllDrives: true,
     });
 
     return {
