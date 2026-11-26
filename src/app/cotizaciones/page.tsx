@@ -3,7 +3,12 @@
 import React, { useState, useRef } from "react";
 import Link from "next/link";
 import { useApp } from "@/lib/app-context";
-import { DatosCotizacionExtraidos, parsearEstructuraDocumento } from "@/lib/pdf-extractor";
+import {
+  DatosCotizacionExtraidos,
+  parsearEstructuraDocumento,
+  extraerTextoDePdf,
+  analizarTextoCotizacion,
+} from "@/lib/pdf-extractor";
 
 type ModalPaso = "adjuntar" | "procesando" | "verificar";
 
@@ -108,33 +113,56 @@ export default function CotizacionesPage() {
     setPasoModal("procesando");
 
     try {
-      const formData = new FormData();
-      formData.append("file", archivo);
-
       // Usar descripción manual si se ingresó o el nombre de archivo
       const descUsada = descManual || descripcionDocumento || archivo.name.replace(/\.pdf$/i, "");
-      if (descUsada) {
-        formData.append("descripcionDocumento", descUsada);
-      }
+      let d: DatosCotizacionExtraidos | null = null;
 
-      const resp = await fetch("/api/cotizaciones/extraer-pdf", {
-        method: "POST",
-        body: formData,
-      });
-
-      const respText = await resp.text();
-      let data: any = null;
+      // 1. Extracción directa y ultrarrápida en el cliente (0 latencia, sin restricciones de tamaño de Vercel)
       try {
-        data = respText ? JSON.parse(respText) : null;
-      } catch {
-        // Si no vino JSON, procesar con la estructura del documento localmente
-        console.warn("Respuesta no JSON del servidor:", respText);
+        const arrayBuffer = await archivo.arrayBuffer();
+        const textoCliente = await extraerTextoDePdf(arrayBuffer);
+        if (textoCliente && textoCliente.trim().length > 10) {
+          d = analizarTextoCotizacion(textoCliente, archivo.name, descUsada);
+        }
+      } catch (clientErr) {
+        console.warn("Extracción directa en cliente no disponible:", clientErr);
       }
 
-      let d: DatosCotizacionExtraidos | null = data?.datos || null;
+      // 2. Si el cliente no pudo extraer importes (o dio null), consultar la API backend
+      if (!d || (d.subtotal === null && d.total === null)) {
+        try {
+          const formData = new FormData();
+          formData.append("file", archivo);
+          if (descUsada) {
+            formData.append("descripcionDocumento", descUsada);
+          }
 
-      if (!resp.ok && !d) {
-        // Fallback resiliente: usar la estructura del documento oficial si el backend falló o demoró
+          const resp = await fetch("/api/cotizaciones/extraer-pdf", {
+            method: "POST",
+            body: formData,
+          });
+
+          const respText = await resp.text();
+          let data: any = null;
+          try {
+            data = respText ? JSON.parse(respText) : null;
+          } catch {
+            console.warn("Respuesta no JSON del servidor:", respText);
+          }
+
+          if (resp.ok && data?.datos) {
+            // Si la API encontró montos o información más completa, usarla
+            if (!d || (data.datos.subtotal !== null || data.datos.total !== null)) {
+              d = data.datos;
+            }
+          }
+        } catch (apiErr) {
+          console.warn("API de extracción no disponible:", apiErr);
+        }
+      }
+
+      // 3. Si aún no tenemos datos, fallback a estructura INDUSTRAC
+      if (!d) {
         const fallbackEst = parsearEstructuraDocumento(descUsada);
         if (fallbackEst) {
           d = {
@@ -157,12 +185,8 @@ export default function CotizacionesPage() {
             ],
           };
         } else {
-          throw new Error(data?.error || `Error en el servidor (${resp.status}). Intente nuevamente.`);
+          throw new Error("No se pudo obtener información de la cotización. Ingrese los datos manualmente.");
         }
-      }
-
-      if (!d) {
-        throw new Error("No se pudo obtener información de la cotización.");
       }
 
       // Verificar si coincidió con la estructura oficial

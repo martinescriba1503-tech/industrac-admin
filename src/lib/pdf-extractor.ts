@@ -1,4 +1,5 @@
-import { PDFParse } from "pdf-parse";
+// Extractor de PDF 100% JavaScript (compatible con Node.js, Vercel Serverless y navegadores)
+// No requiere librerías nativas de C++/Rust (@napi-rs/canvas) que colapsan en Serverless Linux.
 
 export interface DatosCotizacionExtraidos {
   numero: string;
@@ -184,46 +185,45 @@ function parsearImporte(str: string): number | null {
 }
 
 /**
- * Extrae texto de un buffer PDF usando pdf-parse.
- * Es ultra-resiliente: si es un escaneo o estructura compleja, nunca tumba el servidor
- * y permite que el análisis proceda con la descripción/nombre del documento.
+ * Extrae texto de un buffer PDF usando pdfjs-dist puro JavaScript (legacy build).
+ * Funciona garantizadamente en Node.js, Vercel Serverless (Linux) y navegadores.
  */
-export async function extraerTextoDePdf(buffer: Buffer): Promise<string> {
+export async function extraerTextoDePdf(buffer: Buffer | Uint8Array | ArrayBuffer): Promise<string> {
   let texto = "";
 
   try {
-    const parser = new PDFParse({ data: buffer });
-    const result = await parser.getText();
-    texto = result?.text || "";
-  } catch (pdfErr) {
-    console.warn("PDFParse no pudo extraer capa de texto directo:", pdfErr);
-  }
-
-  // Si tiene poco texto, intentar OCR con tiempo límite estricto de 4 segundos
-  if (texto.trim().length < 20) {
-    try {
-      const ocrTimeout = new Promise<string | null>((resolve) =>
-        setTimeout(() => resolve(null), 4000)
-      );
-      const ocrAction = (async () => {
-        try {
-          const { createWorker } = await import("tesseract.js");
-          const worker = await createWorker("spa");
-          const ocrResult = await worker.recognize(buffer);
-          await worker.terminate();
-          return ocrResult?.data?.text || null;
-        } catch {
-          return null;
-        }
-      })();
-
-      const ocrText = await Promise.race([ocrAction, ocrTimeout]);
-      if (ocrText && ocrText.trim().length > texto.trim().length) {
-        return ocrText;
-      }
-    } catch (ocrErr) {
-      console.warn("OCR no disponible o agotó tiempo en este entorno:", ocrErr);
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    let uint8: Uint8Array;
+    if (buffer instanceof Uint8Array) {
+      uint8 = buffer;
+    } else if (buffer instanceof ArrayBuffer) {
+      uint8 = new Uint8Array(buffer);
+    } else {
+      uint8 = new Uint8Array(buffer);
     }
+
+    const loadingTask = pdfjs.getDocument({
+      data: uint8,
+      isEvalSupported: false,
+      useSystemFonts: true,
+      disableFontFace: true,
+    });
+
+    const doc = await loadingTask.promise;
+    const paginasTexto: string[] = [];
+
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const textContent = await page.getTextContent();
+      const lineaPagina = textContent.items
+        .map((item: any) => (item && typeof item === "object" && "str" in item ? item.str : ""))
+        .join(" ");
+      paginasTexto.push(lineaPagina);
+    }
+
+    texto = paginasTexto.join("\n");
+  } catch (pdfErr) {
+    console.warn("pdfjs no pudo extraer texto directo:", pdfErr);
   }
 
   return texto;
@@ -409,7 +409,7 @@ export function analizarTextoCotizacion(
 
   // A) TOTAL + IGV (Total final con impuesto)
   const regexTotalMasIgv =
-    /(?:TOTAL\s*\+\s*IGV|TOTAL\s*\+IGV|TOTAL\s*CON\s*IGV|TOTAL\s*INC(?:LUIDO)?\s*IGV|PRECIO\s*TOTAL|IMPORTE\s*TOTAL|TOTAL\s+GENERAL)\s*[:\-]?\s*(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i;
+    /(?:TOTAL\s*\+\s*IGV|TOTAL\s*\+IGV|TOTAL\s*CON\s*IGV|TOTAL\s*INC(?:LUIDO)?\s*IGV|PRECIO\s*TOTAL|IMPORTE\s*TOTAL|TOTAL\s+GENERAL|TOTAL\s+A\s+PAGAR|TOTAL\s+USD|TOTAL\s+US\$|TOTAL\s+FINAL)[^\d\n\r]{0,35}(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i;
   const matchTotalMasIgv = texto.match(regexTotalMasIgv);
   if (matchTotalMasIgv) {
     total = parsearImporte(matchTotalMasIgv[1]);
@@ -417,7 +417,7 @@ export function analizarTextoCotizacion(
 
   // B) IGV (Impuesto 18%)
   const regexIGV =
-    /(?:I\.?G\.?V\.?|IGV|IMPUESTO)(?:\s*\(?\s*\d{1,2}%\s*\)?)?\s*[:\-]?\s*(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i;
+    /(?:I\.?G\.?V\.?|IGV|IMPUESTO)(?:\s*\(?\s*18%\s*\)?|\s*18%)?[^\d\n\r]{0,35}(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i;
   const matchIGV = texto.match(regexIGV);
   if (matchIGV) {
     igv = parsearImporte(matchIGV[1]);
@@ -425,7 +425,7 @@ export function analizarTextoCotizacion(
 
   // C) TOTAL (Subtotal antes de IGV / Valor de Venta)
   const regexSubtotal =
-    /(?:SUBTOTAL|SUB-TOTAL|VALOR\s+VENTA|NETO|BASE\s+IMPONIBLE|(?<!\+)\bTOTAL\b(?!\s*[\+]|\s*CON\s*IGV))\s*[:\-]?\s*(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i;
+    /(?:SUBTOTAL|SUB-TOTAL|SUB\s+TOTAL|VALOR\s+VENTA|VALOR\s+DE\s+VENTA|NETO|BASE\s+IMPONIBLE|(?<!\+)\bTOTAL\b(?!\s*[\+]|\s*CON\s*IGV|\s*INC))[^\d\n\r]{0,35}(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i;
   const matchSubtotal = texto.match(regexSubtotal);
   if (matchSubtotal) {
     subtotal = parsearImporte(matchSubtotal[1]);
@@ -434,7 +434,7 @@ export function analizarTextoCotizacion(
   // Si no se encontró TOTAL + IGV pero sí TOTAL general
   if (total === null) {
     const regexTotalFallback =
-      /(?<!sub[- ]?)\b(?:Total\s+Cotizaci[oó]n|Total|Monto\s+Total)\b\s*[:\-]?\s*(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i;
+      /(?<!sub[- ]?)\b(?:Total\s+Cotizaci[oó]n|Total|Monto\s+Total)\b[^\d\n\r]{0,35}(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i;
     const matchFallback = texto.match(regexTotalFallback);
     if (matchFallback) {
       const val = parsearImporte(matchFallback[1]);
@@ -444,13 +444,21 @@ export function analizarTextoCotizacion(
     }
   }
 
-  // Deducción matemática asistida si falta alguno
+  // Deducción matemática asistida (Tasa estándar IGV Perú = 18%)
   if (subtotal !== null && igv !== null && total === null) {
     total = Math.round((subtotal + igv) * 100) / 100;
   } else if (subtotal !== null && total !== null && igv === null) {
     igv = Math.round((total - subtotal) * 100) / 100;
   } else if (subtotal === null && total !== null && igv !== null) {
     subtotal = Math.round((total - igv) * 100) / 100;
+  } else if (subtotal !== null && total === null && igv === null) {
+    // Si solo vino Subtotal (TOTAL antes de IGV), calcular IGV (18%) y TOTAL + IGV
+    igv = Math.round(subtotal * 0.18 * 100) / 100;
+    total = Math.round((subtotal + igv) * 100) / 100;
+  } else if (total !== null && subtotal === null && igv === null) {
+    // Si solo vino Total (+IGV), calcular Subtotal e IGV
+    subtotal = Math.round((total / 1.18) * 100) / 100;
+    igv = Math.round((total - subtotal) * 100) / 100;
   }
 
   // Comprobación de coherencia: Subtotal + IGV === Total (+IGV)
