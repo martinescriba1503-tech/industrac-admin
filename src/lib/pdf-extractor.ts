@@ -185,36 +185,48 @@ function parsearImporte(str: string): number | null {
 
 /**
  * Extrae texto de un buffer PDF usando pdf-parse.
- * Si no contiene capas de texto (escaneado), invoca OCR.
+ * Es ultra-resiliente: si es un escaneo o estructura compleja, nunca tumba el servidor
+ * y permite que el análisis proceda con la descripción/nombre del documento.
  */
 export async function extraerTextoDePdf(buffer: Buffer): Promise<string> {
+  let texto = "";
+
   try {
     const parser = new PDFParse({ data: buffer });
     const result = await parser.getText();
-    const texto = result?.text || "";
-
-    if (texto.trim().length < 20) {
-      try {
-        const { createWorker } = await import("tesseract.js");
-        const worker = await createWorker("spa");
-        const ocrResult = await worker.recognize(buffer);
-        await worker.terminate();
-        if (ocrResult.data.text && ocrResult.data.text.trim().length > texto.trim().length) {
-          return ocrResult.data.text;
-        }
-      } catch (ocrErr) {
-        console.warn("OCR fallback:", ocrErr);
-      }
-    }
-
-    return texto;
-  } catch (error) {
-    throw new Error(
-      `El archivo PDF no se pudo leer o está dañado: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
+    texto = result?.text || "";
+  } catch (pdfErr) {
+    console.warn("PDFParse no pudo extraer capa de texto directo:", pdfErr);
   }
+
+  // Si tiene poco texto, intentar OCR con tiempo límite estricto de 4 segundos
+  if (texto.trim().length < 20) {
+    try {
+      const ocrTimeout = new Promise<string | null>((resolve) =>
+        setTimeout(() => resolve(null), 4000)
+      );
+      const ocrAction = (async () => {
+        try {
+          const { createWorker } = await import("tesseract.js");
+          const worker = await createWorker("spa");
+          const ocrResult = await worker.recognize(buffer);
+          await worker.terminate();
+          return ocrResult?.data?.text || null;
+        } catch {
+          return null;
+        }
+      })();
+
+      const ocrText = await Promise.race([ocrAction, ocrTimeout]);
+      if (ocrText && ocrText.trim().length > texto.trim().length) {
+        return ocrText;
+      }
+    } catch (ocrErr) {
+      console.warn("OCR no disponible o agotó tiempo en este entorno:", ocrErr);
+    }
+  }
+
+  return texto;
 }
 
 /**

@@ -122,13 +122,48 @@ export default function CotizacionesPage() {
         body: formData,
       });
 
-      const data = await resp.json();
-
-      if (!resp.ok) {
-        throw new Error(data.error || "No se pudo extraer la información del PDF.");
+      const respText = await resp.text();
+      let data: any = null;
+      try {
+        data = respText ? JSON.parse(respText) : null;
+      } catch {
+        // Si no vino JSON, procesar con la estructura del documento localmente
+        console.warn("Respuesta no JSON del servidor:", respText);
       }
 
-      const d: DatosCotizacionExtraidos = data.datos;
+      let d: DatosCotizacionExtraidos | null = data?.datos || null;
+
+      if (!resp.ok && !d) {
+        // Fallback resiliente: usar la estructura del documento oficial si el backend falló o demoró
+        const fallbackEst = parsearEstructuraDocumento(descUsada);
+        if (fallbackEst) {
+          d = {
+            numero: fallbackEst.numero || "",
+            cliente: fallbackEst.cliente || "",
+            descripcion: fallbackEst.descripcion || descUsada,
+            fecha: fallbackEst.fecha || new Date().toISOString().split("T")[0],
+            equipoModelo: fallbackEst.equipoModelo || "",
+            serie: fallbackEst.serie || "",
+            ruc: "",
+            moneda: "USD",
+            subtotal: null,
+            igv: null,
+            total: null,
+            condicionPago: "",
+            validezOferta: "",
+            coherenciaMontos: true,
+            advertencias: [
+              "Datos principales extraídos de la nomenclatura oficial INDUSTRAC. Por favor complete los importes.",
+            ],
+          };
+        } else {
+          throw new Error(data?.error || `Error en el servidor (${resp.status}). Intente nuevamente.`);
+        }
+      }
+
+      if (!d) {
+        throw new Error("No se pudo obtener información de la cotización.");
+      }
 
       // Verificar si coincidió con la estructura oficial
       const testEstructura = parsearEstructuraDocumento(descUsada);
