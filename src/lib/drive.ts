@@ -11,8 +11,13 @@ const rawPrivateKey =
   process.env.GOOGLE_PRIVATE_KEY ||
   "";
 
-// Corregir posibles saltos de línea escapados en la llave privada (\n -> newline)
-const serviceAccountKey = rawPrivateKey.replace(/\\n/g, "\n");
+// Corregir posibles saltos de línea escapados en la llave privada (\n -> newline) y comillas circundantes
+const serviceAccountKey = rawPrivateKey
+  ? rawPrivateKey
+      .trim()
+      .replace(/^["']|["']$/g, "")
+      .replace(/\\n/g, "\n")
+  : "";
 const rootFolderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || "";
 
 /**
