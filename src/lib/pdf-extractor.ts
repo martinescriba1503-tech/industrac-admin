@@ -93,10 +93,10 @@ export function parsearEstructuraDocumento(str: string): EstructuraDocumentoExtr
     }
   }
 
-  // Extraer equipo modelo (ej: GA55, GA22, Atlas Copco GA55, Sullair...)
+  // Extraer equipo modelo (ej: COMPRESOR GA22, GA55, GA22, Atlas Copco GA55, Sullair...)
   let equipoModelo = "";
   const matchModelo = descripcion.match(
-    /\b(Atlas Copco(?:\s+[A-Za-z0-9\-]+)+|Sullair(?:\s+[A-Za-z0-9\-]+)+|Ingersoll Rand(?:\s+[A-Za-z0-9\-]+)+|Kaeser(?:\s+[A-Za-z0-9\-]+)+|GA\s*\d+|COMPRESOR[^\s]*)\b/i
+    /\b(COMPRESOR\s+GA\s*\d+|GA\s*\d+|Atlas Copco(?:\s+[A-Za-z0-9\-]+)+|Sullair(?:\s+[A-Za-z0-9\-]+)+|Ingersoll Rand(?:\s+[A-Za-z0-9\-]+)+|Kaeser(?:\s+[A-Za-z0-9\-]+)+|COMPRESOR[^\s]*)\b/i
   );
   if (matchModelo) {
     equipoModelo = matchModelo[0].trim();
@@ -408,40 +408,31 @@ export function analizarTextoCotizacion(
   let total: number | null = null;
 
   // A) TOTAL + IGV (Total final con impuesto)
-  const regexTotalMasIgv =
-    /(?:TOTAL\s*\+\s*IGV|TOTAL\s*\+IGV|TOTAL\s*CON\s*IGV|TOTAL\s*INC(?:LUIDO)?\s*IGV|PRECIO\s*TOTAL|IMPORTE\s*TOTAL|TOTAL\s+GENERAL|TOTAL\s+A\s+PAGAR|TOTAL\s+USD|TOTAL\s+US\$|TOTAL\s+FINAL)[^\d\n\r]{0,35}(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i;
-  const matchTotalMasIgv = texto.match(regexTotalMasIgv);
+  const matchTotalMasIgv =
+    texto.match(/TOTAL\s*\+\s*IGV[^\d]{0,25}(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i) ||
+    texto.match(/Precio\s+total\b[^\d]{0,40}(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i) ||
+    texto.match(
+      /(?:TOTAL\s*CON\s*IGV|TOTAL\s*INC(?:LUIDO)?\s*IGV|IMPORTE\s*TOTAL|TOTAL\s+GENERAL|TOTAL\s+A\s+PAGAR|TOTAL\s+FINAL)[^\d]{0,25}(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i
+    );
   if (matchTotalMasIgv) {
     total = parsearImporte(matchTotalMasIgv[1]);
   }
 
   // B) IGV (Impuesto 18%)
-  const regexIGV =
-    /(?:I\.?G\.?V\.?|IGV|IMPUESTO)(?:\s*\(?\s*18%\s*\)?|\s*18%)?[^\d\n\r]{0,35}(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i;
-  const matchIGV = texto.match(regexIGV);
+  const matchIGV = texto.match(/\b(?:I\.?G\.?V\.?|IGV)[^\d]{0,25}(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i);
   if (matchIGV) {
     igv = parsearImporte(matchIGV[1]);
   }
 
-  // C) TOTAL (Subtotal antes de IGV / Valor de Venta)
-  const regexSubtotal =
-    /(?:SUBTOTAL|SUB-TOTAL|SUB\s+TOTAL|VALOR\s+VENTA|VALOR\s+DE\s+VENTA|NETO|BASE\s+IMPONIBLE|(?<!\+)\bTOTAL\b(?!\s*[\+]|\s*CON\s*IGV|\s*INC))[^\d\n\r]{0,35}(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i;
-  const matchSubtotal = texto.match(regexSubtotal);
+  // C) TOTAL (Subtotal antes de IGV)
+  // En cotizaciones de INDUSTRAC y Perú, "TOTAL US$ xxx" seguido de "IGV" es el Subtotal antes de impuesto
+  const matchSubtotal =
+    texto.match(/\bTOTAL[^\d]{0,25}(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)(?=\s*(?:I\.?G\.?V\.?|IGV))/i) ||
+    texto.match(
+      /(?:SUBTOTAL|SUB-TOTAL|SUB\s+TOTAL|VALOR\s+VENTA|VALOR\s+DE\s+VENTA|NETO|BASE\s+IMPONIBLE)[^\d]{0,25}(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i
+    );
   if (matchSubtotal) {
     subtotal = parsearImporte(matchSubtotal[1]);
-  }
-
-  // Si no se encontró TOTAL + IGV pero sí TOTAL general
-  if (total === null) {
-    const regexTotalFallback =
-      /(?<!sub[- ]?)\b(?:Total\s+Cotizaci[oó]n|Total|Monto\s+Total)\b[^\d\n\r]{0,35}(?:USD|US\$|S\/\.?|PEN|\$)?\s*([\d,.]+)/i;
-    const matchFallback = texto.match(regexTotalFallback);
-    if (matchFallback) {
-      const val = parsearImporte(matchFallback[1]);
-      if (val !== subtotal) {
-        total = val;
-      }
-    }
   }
 
   // Deducción matemática asistida (Tasa estándar IGV Perú = 18%)
@@ -476,19 +467,19 @@ export function analizarTextoCotizacion(
   // 10. CONDICIÓN DE PAGO (si figura en el PDF)
   let condicionPago = "";
   const regexCondicion =
-    /(?:Condici[oó]n\s+de\s+pago|Forma\s+de\s+pago|T[eé]rminos\s+de\s+pago|Pago)\s*[:\-]?\s*([^\r\n]{3,60})/i;
+    /(?:Condiciones?\s+de\s+pago|Forma\s+de\s+pago|T[eé]rminos\s+de\s+pago|Pago)\s*[:\-]?\s*([^:\r\n]+?)(?=\s*(?:Validez|BCP|Cuenta|Plazo|$))/i;
   const matchCondicion = texto.match(regexCondicion);
-  if (matchCondicion) {
-    condicionPago = matchCondicion[1].trim().split(/[.;\n]/)[0].trim();
+  if (matchCondicion && matchCondicion[1]) {
+    condicionPago = matchCondicion[1].trim();
   }
 
   // 11. VALIDEZ DE OFERTA (si figura en el PDF)
   let validezOferta = "";
   const regexValidez =
-    /(?:Validez\s+de\s+(?:la\s+)?oferta|Validez\s+de\s+cotizaci[oó]n|Validez|Vigencia)\s*[:\-]?\s*([^\r\n]{3,50})/i;
+    /(?:Validez\s+de\s+(?:la\s+)?oferta|Validez\s+de\s+cotizaci[oó]n|Validez|Vigencia)\s*[:\-]?\s*([^:\r\n]+?)(?=\s*(?:BCP|Cuenta|Plazo|Condicion|$))/i;
   const matchValidez = texto.match(regexValidez);
-  if (matchValidez) {
-    validezOferta = matchValidez[1].trim().split(/[.;\n]/)[0].trim();
+  if (matchValidez && matchValidez[1]) {
+    validezOferta = matchValidez[1].trim();
   }
 
   return {
