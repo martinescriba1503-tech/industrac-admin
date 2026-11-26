@@ -201,6 +201,8 @@ export async function extraerTextoDePdf(buffer: Buffer | Uint8Array | ArrayBuffe
     }
 
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    // @ts-ignore
+    await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
     let uint8: Uint8Array;
     if (buffer instanceof ArrayBuffer) {
       uint8 = new Uint8Array(buffer);
